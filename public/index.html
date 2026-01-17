@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bench Compare</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="wrap">
+    <div class="banner">
+      <strong>【重要】組織内利用限定</strong><br/>
+      本サイトは <strong>組織内での利用に限定</strong> します。外部公開・再配布・転売は禁止です。<br/>
+      作成・運用の責任は <strong>東北３課日影</strong> にあります。
+    </div>
+
+    <h1>ベンチ比較（10年以内）</h1>
+
+    <div class="tabs">
+      <button class="tab active" data-type="pc_cpu">PC CPU</button>
+      <button class="tab" data-type="pc_gpu">PC GPU</button>
+      <button class="tab" data-type="mobile">Mobile（Android+iPhone/iPad）</button>
+    </div>
+
+    <section class="box">
+      <div class="row">
+        <div class="col">
+          <h2>左</h2>
+          <input id="lq" placeholder="検索（2文字以上）" />
+          <div id="lr" class="results"></div>
+          <div>選択: <span id="lp">未選択</span></div>
+        </div>
+
+        <div class="col">
+          <h2>右</h2>
+          <input id="rq" placeholder="検索（2文字以上）" />
+          <div id="rr" class="results"></div>
+          <div>選択: <span id="rp">未選択</span></div>
+        </div>
+      </div>
+
+      <button id="go" disabled>比較</button>
+      <p class="note">※候補は COALESCE(released_at, first_seen_at) が直近10年のみ</p>
+    </section>
+
+    <section class="box">
+      <h2>結果</h2>
+      <div id="out"></div>
+
+      <h3>スコア</h3>
+      <canvas id="chartScore" height="140"></canvas>
+
+      <h3>差分％（右が左に対して）</h3>
+      <canvas id="chartDiff" height="140"></canvas>
+
+      <h3>ランキング順位（小さいほど上位）</h3>
+      <canvas id="chartRank" height="140"></canvas>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "cpucompare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "update": "node scripts/update_passmark_all.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12"
+  }
+}
