@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 
 const OUTDIR = path.join("public", "data");
 
@@ -198,3 +198,4 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
+
