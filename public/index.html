@@ -23,38 +23,56 @@
     </div>
 
     <section class="box">
+      <div class="filters">
+        <div class="fitem">
+          <label>メーカー</label>
+          <select id="vendorSel">
+            <option value="">（すべて）</option>
+          </select>
+        </div>
+        <div class="fitem">
+          <label>シリーズ</label>
+          <select id="familySel">
+            <option value="">（すべて）</option>
+          </select>
+        </div>
+        <div class="fitem">
+          <label>表示</label>
+          <select id="modeSel">
+            <option value="simple">初心者（短縮名メイン）</option>
+            <option value="detail">詳細（正式名も表示）</option>
+          </select>
+        </div>
+      </div>
+
       <div class="row">
         <div class="col">
           <h2>左</h2>
           <input id="lq" placeholder="検索（2文字以上）" />
           <div id="lr" class="results"></div>
-          <div>選択: <span id="lp">未選択</span></div>
+          <div class="picked">選択: <span id="lp">未選択</span></div>
         </div>
 
         <div class="col">
           <h2>右</h2>
           <input id="rq" placeholder="検索（2文字以上）" />
           <div id="rr" class="results"></div>
-          <div>選択: <span id="rp">未選択</span></div>
+          <div class="picked">選択: <span id="rp">未選択</span></div>
         </div>
       </div>
 
       <button id="go" disabled>比較</button>
-      <p class="note">※候補は COALESCE(released_at, first_seen_at) が直近10年のみ</p>
+      <p class="note">※候補は COALESCE(released_at, first_seen_at) が直近10年のみ（判別不能はOther/Unknownに入ります）</p>
     </section>
 
     <section class="box">
       <h2>結果</h2>
       <div id="out"></div>
 
-      <h3>スコア</h3>
-      <canvas id="chartScore" height="140"></canvas>
-
-      <h3>差分％（右が左に対して）</h3>
-      <canvas id="chartDiff" height="140"></canvas>
-
-      <h3>ランキング順位（小さいほど上位）</h3>
-      <canvas id="chartRank" height="140"></canvas>
+      <h3>性能比較（高い方=青 / 低い方=赤）</h3>
+      <div class="chartWrap">
+        <canvas id="chartScore"></canvas>
+      </div>
     </section>
   </main>
 
