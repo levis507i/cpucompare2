@@ -7,7 +7,7 @@ const OUTDIR = path.join("public", "data");
 const PC_TARGETS = [
   {
     key: "pc_cpu",
-    url: "https://www.cpubenchmark.net/cpu_list.php",
+    url: "https://www.cpubenchmark.net/cpu_list.php?download=1",
     out: path.join(OUTDIR, "pc_cpu.json"),
     nameNeedle: "CPU Name",
     scoreNeedle: "CPU Mark",
@@ -16,7 +16,7 @@ const PC_TARGETS = [
   },
   {
     key: "pc_gpu",
-    url: "https://www.videocardbenchmark.net/gpu_list.php",
+    url: "https://www.videocardbenchmark.net/gpu_list.php?download=1",
     out: path.join(OUTDIR, "pc_gpu.json"),
     nameNeedle: "Videocard Name",
     scoreNeedle: "G3D Mark",
@@ -362,3 +362,4 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
+
