@@ -15,8 +15,6 @@ const PC_TARGETS = [
     key: "pc_cpu",
     url: "https://www.cpubenchmark.net/cpu_list.php?download=1",
     out: path.join(OUTDIR, "pc_cpu.json"),
-    nameNeedle: "CPU Name",
-    scoreNeedle: "CPU Mark",
     suite: "passmark_cpu",
     itemType: "pc_cpu"
   },
@@ -24,8 +22,6 @@ const PC_TARGETS = [
     key: "pc_gpu",
     url: "https://www.videocardbenchmark.net/gpu_list.php?download=1",
     out: path.join(OUTDIR, "pc_gpu.json"),
-    nameNeedle: "Videocard Name",
-    scoreNeedle: "G3D Mark",
     suite: "passmark_g3d",
     itemType: "pc_gpu"
   }
@@ -60,24 +56,6 @@ function loadExisting(outFile) {
   }
 }
 
-function parseLastUpdated(bodyText) {
-  const m = bodyText.match(/Last updated on the\s+(\d{1,2})(?:st|nd|rd|th)\s+of\s+([A-Za-z]+)\s+(\d{4})/i);
-  if (!m) return null;
-
-  const day = Number(m[1]);
-  const mon = m[2].toLowerCase();
-  const year = Number(m[3]);
-
-  const months = {
-    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
-    july: 7, august: 8, september: 9, october: 10, november: 11, december: 12
-  };
-  const month = months[mon];
-  if (!month) return null;
-
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
 async function fetchText(url) {
   const res = await fetch(url, { headers: { "User-Agent": "cpucompare/1.0 (internal)" } });
   if (!res.ok) throw new Error(`Fetch failed ${res.status}: ${url}`);
@@ -85,12 +63,17 @@ async function fetchText(url) {
 }
 
 /**
- * シンプルCSVパーサ（PassMarkのdownload=1で十分な形式を想定）
- * - ダブルクォート内のカンマは保護
- * - "" のエスケープは最低限対応
+ * CSVパーサ（download=1向け）
+ * - BOM除去
+ * - クォート内カンマ対応
+ * - "" のエスケープ対応
  */
 function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  let t = text;
+  // BOM除去
+  if (t.charCodeAt(0) === 0xfeff) t = t.slice(1);
+
+  const lines = t.split(/\r?\n/).filter(l => l.trim().length > 0);
   const rows = [];
 
   for (const line of lines) {
@@ -100,9 +83,7 @@ function parseCsv(text) {
 
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-
       if (ch === '"') {
-        // "" → " を扱う
         if (inQ && line[i + 1] === '"') {
           cur += '"';
           i++;
@@ -117,43 +98,56 @@ function parseCsv(text) {
       }
     }
     cols.push(cur);
-
-    rows.push(cols.map(c => c.trim()));
+    rows.push(cols.map(c => c.trim().replace(/^"(.*)"$/s, "$1").trim()));
   }
-
-  // 外側のクォート除去
-  return rows.map(r => r.map(c => c.replace(/^"(.*)"$/s, "$1").trim()));
+  return rows;
 }
 
-// ---- HTML fallback utilities (万一CSVが取れない場合) ----
+function looksLikeCsv(text) {
+  const head = text.slice(0, 300).toLowerCase();
+  // HTMLを弾く
+  if (head.includes("<html") || head.includes("<!doctype") || head.includes("<body")) return false;
+  // カンマ区切りっぽさ
+  return head.includes(",") && (head.includes("mark") || head.includes("name"));
+}
+
+function findColIndex(headerLower, candidates) {
+  for (const cand of candidates) {
+    const idx = headerLower.findIndex(h => h.includes(cand));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+/** HTML fallback（万一CSVが取れない場合） */
 function pickTableByHeaders($, mustA, mustB) {
   const tables = $("table").toArray();
   for (const t of tables) {
     const headers = $(t).find("tr").first().find("th")
-      .map((_, th) => $(th).text().trim()).get().join(" | ");
+      .map((_, th) => $(th).text().trim().toLowerCase()).get().join(" | ");
     if (headers.includes(mustA) && headers.includes(mustB)) return t;
   }
   return null;
 }
 
-function parseTableList($, table, nameNeedle, scoreNeedle) {
+function parseTableList($, table, nameNeedleLower, scoreNeedleLower) {
   if (!table) throw new Error("Expected table not found (HTML may have changed)");
 
   const headerCells = $(table).find("tr").first().find("th").toArray();
   const headers = headerCells.map(h => $(h).text().trim());
-  const nameIdx = headers.findIndex(h => h.includes(nameNeedle));
-  const scoreIdx = headers.findIndex(h => h.includes(scoreNeedle));
+  const headersLower = headers.map(h => h.toLowerCase());
+
+  const nameIdx = headersLower.findIndex(h => h.includes(nameNeedleLower));
+  const scoreIdx = headersLower.findIndex(h => h.includes(scoreNeedleLower));
   if (nameIdx < 0 || scoreIdx < 0) throw new Error("Expected headers not found");
 
   const items = new Map();
   $(table).find("tr").slice(1).each((_, tr) => {
     const tds = $(tr).find("td");
     if (tds.length <= Math.max(nameIdx, scoreIdx)) return;
-
     const name = $(tds[nameIdx]).text().trim().replace(/\s+/g, " ");
     const scoreStr = $(tds[scoreIdx]).text().trim().replace(/,/g, "");
     const score = Number(scoreStr);
-
     if (name && Number.isFinite(score)) items.set(name, score);
   });
   return items;
@@ -181,14 +175,10 @@ function parseBulletsChart($) {
   return items;
 }
 
-/**
- * ベンダー推定（漏れなく：不明は Other/Unknown）
- * PC CPUに Snapdragon 等が混ざっても Qualcomm として拾う。
- */
+/** ベンダー推定（漏れなく：不明は Other/Unknown） */
 function inferVendor(name, itemType) {
   const n = name.toLowerCase();
 
-  // GPU
   if (itemType === "pc_gpu") {
     if (n.includes("nvidia") || n.includes("geforce") || n.includes("quadro") || n.includes("rtx") || n.includes("gtx"))
       return "NVIDIA";
@@ -201,7 +191,6 @@ function inferVendor(name, itemType) {
     return "Other/Unknown";
   }
 
-  // CPU/SoC
   if (n.includes("intel") || n.includes("core i") || n.includes("xeon") || n.includes("pentium") || n.includes("celeron") || n.includes("atom") || n.includes("core ultra"))
     return "Intel";
   if (n.includes("amd") || n.includes("ryzen") || n.includes("threadripper") || n.includes("epyc") || n.includes("athlon"))
@@ -209,7 +198,6 @@ function inferVendor(name, itemType) {
   if (n.includes("apple") || /\bm[1-9]\b/.test(n) || /\ba\d{1,2}\b/.test(n) || n.includes("bionic"))
     return "Apple";
 
-  // Qualcomm / Snapdragon（PC含む）
   if (
     n.includes("snapdragon") ||
     n.includes("qualcomm") ||
@@ -238,9 +226,6 @@ function inferVendor(name, itemType) {
   return "Other/Unknown";
 }
 
-/**
- * シリーズ（family）推定：絞り込み用（漏れなく：Unknownに落とす）
- */
 function inferFamily(name, vendor, itemType) {
   const n = name;
 
@@ -309,21 +294,16 @@ function inferFamily(name, vendor, itemType) {
   return "Other/Unknown";
 }
 
-/**
- * 短縮名（short_name）：スマホでも見やすい表示名
- */
 function makeShortName(name, vendor, family, itemType) {
   let s = name.replace(/\s+/g, " ").trim();
   s = s.replace(/\bprocessor\b/ig, "").replace(/\bcpu\b/ig, "").replace(/\bapu\b/ig, "").trim();
 
   if (itemType === "pc_cpu") {
     if (vendor === "Intel") {
-      s = s.replace(/^intel\s+/i, "");
-      s = s.replace(/^intel®\s*/i, "");
+      s = s.replace(/^intel\s+/i, "").replace(/^intel®\s*/i, "");
     }
     if (vendor === "AMD") {
       s = s.replace(/^amd\s+/i, "");
-      // Ryzen表記が落ちないように保険
       if (/ryzen/i.test(name) && !/ryzen/i.test(s)) s = `Ryzen ${s}`;
     }
     if (vendor === "Qualcomm") {
@@ -344,12 +324,8 @@ function makeShortName(name, vendor, family, itemType) {
   }
 
   if (itemType === "pc_gpu") {
-    if (vendor === "NVIDIA") {
-      s = s.replace(/^nvidia\s+/i, "");
-    }
-    if (vendor === "AMD") {
-      s = s.replace(/^amd\s+/i, "");
-    }
+    if (vendor === "NVIDIA") s = s.replace(/^nvidia\s+/i, "");
+    if (vendor === "AMD") s = s.replace(/^amd\s+/i, "");
   }
 
   return s.trim();
@@ -386,28 +362,36 @@ function mergeUpsert(existingList, incomingNameToBenchObj, itemType) {
   return merged;
 }
 
-/**
- * PC CPU/GPU: download=1 のCSVを優先し、取れなければHTMLにフォールバック
- */
 async function updatePcTarget(t) {
   const existing = loadExisting(t.out);
   const text = await fetchText(t.url);
 
   const incoming = new Map();
 
-  const lower = text.toLowerCase();
-  const looksCsv =
-    (lower.includes("cpu mark") && t.itemType === "pc_cpu") ||
-    (lower.includes("g3d mark") && t.itemType === "pc_gpu");
-
-  if (looksCsv) {
+  if (looksLikeCsv(text)) {
     const rows = parseCsv(text);
-    if (rows.length < 2) throw new Error(`CSV too short: ${t.url}`);
+    if (rows.length < 2) {
+      throw new Error(`CSV too short: ${t.url} (rows=${rows.length})`);
+    }
 
-    const header = rows[0].map(h => h.toLowerCase());
-    const nameIdx = header.findIndex(h => h.includes(t.nameNeedle.toLowerCase()));
-    const scoreIdx = header.findIndex(h => h.includes(t.scoreNeedle.toLowerCase()));
-    if (nameIdx < 0 || scoreIdx < 0) throw new Error(`CSV headers not found: ${t.url}`);
+    const headerLower = rows[0].map(h => String(h || "").toLowerCase());
+
+    // CPU/GPUで候補を変える（ヘッダ名の揺れに強くする）
+    const nameCandidates = t.itemType === "pc_cpu"
+      ? ["cpu name", "name"]
+      : ["videocard name", "video card name", "gpu name", "name"];
+
+    const scoreCandidates = t.itemType === "pc_cpu"
+      ? ["cpu mark", "cpumark", "mark"]
+      : ["g3d mark", "g3dmark", "mark"];
+
+    const nameIdx = findColIndex(headerLower, nameCandidates);
+    const scoreIdx = findColIndex(headerLower, scoreCandidates);
+
+    if (nameIdx < 0 || scoreIdx < 0) {
+      // デバッグ用にヘッダを表示して落ちる（ここが原因の可能性が高い）
+      throw new Error(`CSV headers not found: ${t.url}\nheader=${JSON.stringify(rows[0])}`);
+    }
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -418,8 +402,10 @@ async function updatePcTarget(t) {
   } else {
     // HTML fallback
     const $ = cheerio.load(text);
-    const table = pickTableByHeaders($, t.nameNeedle, t.scoreNeedle);
-    const nameToScore = parseTableList($, table, t.nameNeedle, t.scoreNeedle);
+    const mustA = t.itemType === "pc_cpu" ? "cpu name" : "videocard name";
+    const mustB = t.itemType === "pc_cpu" ? "cpu mark" : "g3d mark";
+    const table = pickTableByHeaders($, mustA, mustB);
+    const nameToScore = parseTableList($, table, mustA, mustB);
     for (const [name, score] of nameToScore.entries()) {
       incoming.set(name, { [t.suite]: score });
     }
@@ -443,13 +429,9 @@ async function updatePcTarget(t) {
   console.log(`[OK] ${t.key}: ${cpus.length} -> ${t.out}`);
 }
 
-/**
- * Mobile: Android + iOS のチャートを統合
- */
 async function updateMobileMerged() {
   const existing = loadExisting(MOBILE_OUT);
   const incoming = new Map();
-
   const meta = { key: "mobile", sources: [], fetched_at: todayISO(), passmark_last_updated: {} };
 
   for (const s of MOBILE_SOURCES) {
@@ -464,7 +446,7 @@ async function updateMobileMerged() {
     }
 
     meta.sources.push({ key: s.key, url: s.url });
-    meta.passmark_last_updated[s.key] = parseLastUpdated($("body").text());
+    meta.passmark_last_updated[s.key] = null; // チャートページはLast updated表記が安定しないのでnullでOK
   }
 
   const cpus = mergeUpsert(existing.cpus ?? [], incoming, "mobile");
